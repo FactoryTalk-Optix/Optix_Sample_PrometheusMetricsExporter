@@ -1,5 +1,5 @@
 Name: NetLogic
 Type: NetLogicCategoryFolder
 Children:
-- Name: Metric_Logic
+- Name: Metrics_Logic
   Type: NetLogic

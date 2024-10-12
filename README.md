@@ -1,6 +1,6 @@
 # Metric Logic
 
-This project contains a `Metric_Logic` class that exposes various system and process metrics using Prometheus. The metrics are exposed on `http://localhost:1234/metrics`.
+This project contains a `Metric_Logic` class that exposes various system and process metrics using Prometheus and OpenTelemetry, the two components can be detached they do not strictly relate each other. The metrics are exposed on `http://localhost:1234/metrics`.
 
 ![metrics image](./Images/metrics.png)
 
@@ -30,6 +30,8 @@ The following packages have to be installed (if not automatically restored by Fa
 - Microsoft.Extensions.ObjectPool (Version 8.0.10)
 - prometheus-net (Version 8.2.1)
 - System.Diagnostics.PerformanceCounter (Version 8.0.1)
+- OpenTelemetry (Version 1.3.0)
+- OpenTelemetry.Exporter.Console (Version 1.3.0)
 
 ## Configuration
 
@@ -47,9 +49,13 @@ Add the following scrape configuration to your Prometheus configuration file (`p
 
 ```txt
 scrape_configs:
-  - job_name: 'ftoptix_metrics'
+  - job_name: 'ftoptix_prometheus'
     static_configs:
     - targets: ['ipaddress:1234']
+	
+  - job_name: 'FTOptix_OpenTelemetry'
+    static_configs:
+    - targets: ["otel-collector:8888", "otel-collector:8889"]
 
 ```
 
@@ -67,9 +73,9 @@ The following metrics are exposed:
 
 ### Metric_Logic Class
 
-- **Start Method**: Initializes and starts the metrics server on port 1234 and starts a periodic task to refresh the metrics.
+- **Start Method**: Initializes and starts the metrics server on port `1234`, configures OpenTelemetry with a console exporter, and starts a periodic task to refresh the metrics.
 - **Stop Method**: Disposes of the periodic task and metrics server.
-- **MetricsMethod**: Refreshes the memory and CPU metrics and updates the Prometheus gauges.
+- **UpdateMetricsMethod**: Refreshes the memory and CPU metrics and updates the Prometheus gauges.
 
 ### CpuUsage Class
 
@@ -98,13 +104,19 @@ Replace `[metric name]` with the name of the metric you want to monitor.
 
 ### Logging
 
-Errors during metric refresh are logged using the `Log.Error` method.
+Errors during metric refresh are logged using the `Log.Error` method, these are shown to the FactoryTalk Optix logs.
 
 ## Sample Grafana + Prometheus stack
 
+This is just an example of how to run an instance of Grafana + Prometheus + OpenTelemetry to see the exported metrics
+
+- **Grafana**: used to create cool dashboards
+- **Prometheus**: used to collect metrics and pass it to Grafana
+- **Ubuntu**: optional - only used to edit configs
+- **OpenTelemetry Collector**: receiving OpenTelemetry data from Optix and passing it to Prometheus using the exporter
+
 ```yaml
-services:
-  # Grafana is used to create cool visualizations
+services:     
   grafana:
     image: grafana/grafana
     container_name: grafana
@@ -113,11 +125,11 @@ services:
     restart: unless-stopped
     environment:
       - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=SomeComplexPassword
+      - GF_SECURITY_ADMIN_PASSWORD=Password01
     volumes:
       - grafana:/etc/grafana/provisioning/datasources
       - grafana_db:/var/lib/grafana
-  # Prometheus is the metrics ingestion software
+      
   prometheus:
     image: prom/prometheus
     container_name: prometheus
@@ -129,10 +141,11 @@ services:
     volumes:
       - prom_etc:/etc/prometheus
       - prom_data:/prometheus
-  # Ubuntu is only used to get easy access to the configuration folders
+
   ubuntu:
     image: ubuntu:latest
     container_name: grafana_ubuntu
+    restart: unless-stopped
     stdin_open: true
     tty: true
     volumes:
@@ -140,12 +153,28 @@ services:
       - prom_data:/etc/stack/prometheus_data
       - grafana:/etc/stack/grafana_sources
       - grafana_db:/etc/stack/grafana_db
-      
+      - otel_config:/etc/stack/otel_config
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib
+    container_name: otel-collector
+    volumes:
+      - otel_config:/etc/otelcol-contrib/
+    ports:
+      - 1888:1888 # pprof extension
+      - 8888:8888 # Prometheus metrics exposed by the Collector
+      - 8889:8889 # Prometheus exporter metrics
+      - 13133:13133 # health_check extension
+      - 4317:4317 # OTLP gRPC receiver
+      - 4318:4318 # OTLP http receiver
+      - 55679:55679 # zpages extension
+
 volumes:
   grafana:
   grafana_db:
   prom_etc:
   prom_data:
+  otel_config:
 ```
 
 ## Disclaimer

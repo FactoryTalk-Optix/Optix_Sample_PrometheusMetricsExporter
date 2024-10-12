@@ -7,65 +7,104 @@ using System.Diagnostics;
 using System.Threading.Tasks;
 using System;
 using System.Runtime.InteropServices;
-using FTOptix.System;
+using System.Diagnostics.Metrics;
+using OpenTelemetry;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Logs;
+using OpenTelemetry.Exporter;
 #endregion
 
-public class Metric_Logic : BaseNetLogic
+public class Metrics_Logic : BaseNetLogic
 {
-    // To allow FTOptixRuntime access to the port 1234, run this command in the terminal:
-    //      netsh http add urlacl url=http://+:1234/ user=Everyone
+    // Please see the README.md file for the full explanation of the code
 
-    // Metrics are exposed on http://localhost:1234/metrics
-    // Metrics can also be accessed using:  dotnet-counters monitor -n FTOptixRuntime --counters [metric name]
+    #region NetLogic creation and disposal methods
+    public override void Start()
+    {
+        if (PrometheusInitialization() || OpenTelemetryInitialization())
+        {
+            // Start the periodic task to refresh the metrics
+            metricsTask = new PeriodicTask(UpdadteMetricsMethod, 500, LogicObject);
+            metricsTask.Start();
+        }
+        else
+        {
+            Log.Error("Metrics.Start", "Failed to start the metrics server");
+        }
+    }
 
-    // Prometheus configuration:
-    //
-    // scrape_configs:
-    //  - job_name: 'hatco_store'
-    //    static_configs:
-    //    - targets: ['localhost:1234']
-
-    #region Metrics declaration
-    private static readonly Gauge optixModelVariable = Metrics.CreateGauge("FTOptix_Model_Variable1", "Variable1 from Model folder");
-    private static readonly Gauge systemCpuUsage = Metrics.CreateGauge("FTOptix_Diagnostics_totalCpuUsagePercent", "Total CPU usage percent");
-    private static readonly Gauge systemRamUsage = Metrics.CreateGauge("FTOptix_Diagnostics_totalRamUsageMegaBytes", "Total RAM utilization in MB");
-    private static readonly Gauge processCpuUsage = Metrics.CreateGauge("FTOptix_Diagnostics_processCpuUsagePercent", "CPU usage percent of the current process");
-    private static readonly Gauge processMemoryUsage = Metrics.CreateGauge("FTOptix_Diagnostics_processMemoryUsageMegaBytes", "Memory usage of the current process in MB");
-
+    public override void Stop()
+    {
+        // Stop the periodic task and dispose all metrics
+        metricsTask?.Dispose();
+        metricServer?.Dispose();
+        meterProvider?.Dispose();
+    }
     #endregion
 
-    public override void Start()
+    #region Metrics initialization
+    private bool OpenTelemetryInitialization()
+    {
+        try
+        {
+            // Start the OpenTelemetry metrics server
+            meterProvider = Sdk.CreateMeterProviderBuilder()
+                .AddMeter("FTOptixRuntime")
+                .AddConsoleExporter()
+                .AddOtlpExporter(options =>
+                {
+                    // Set the protocol to Grpc or HttpProtobuf
+                    options.Protocol = OtlpExportProtocol.Grpc; // or OtlpExportProtocol.HttpProtobuf
+
+                    // Set the endpoint
+                    options.Endpoint = new Uri("http://172.19.20.27:4317"); // or "http://localhost:4318" for HttpProtobuf
+                })
+                .Build();
+
+            return true;
+        }
+        catch (Exception e)
+        {
+            Log.Error("Metrics.Start", "Failed to start the OpenTelemetry metrics server: " + e.Message);
+            return false;
+        }
+    }
+
+    private bool PrometheusInitialization()
     {
         try
         {
             // Start the metrics server
             metricServer = new MetricServer(port: 1234);
             metricServer.Start();
+            return true;
         }
         catch (Exception e)
         {
             Log.Error("Metrics.Start", "Failed to start the metrics server: " + e.Message);
-            return;
+            return false;
         }
-
-        // Start the periodic task to refresh the metrics
-        metricsTask = new PeriodicTask(MetricsMethod, 500, LogicObject);
-        metricsTask.Start();
     }
+    #endregion
 
-    public override void Stop()
+    private void UpdadteMetricsMethod()
     {
-        metricsTask?.Dispose();
-        metricServer?.Dispose();
-    }
+        double metricValue;
 
-    private void MetricsMethod()
-    {
         try
         {
-            // Refresh the memory information
-            systemRamUsage.Set(MemoryUsage.GetTotalMemoryUsage().Result);
-            processMemoryUsage.Set(MemoryUsage.GetProcessMemoryUsage().Result);
+            // Refresh the total memory information
+            metricValue = MemoryUsage.GetTotalMemoryUsage().Result;
+            // Update values for Prometheus
+            systemRamUsage.Set(metricValue);
+            // Update values for OpenTelemetry
+            systemRamUsageCounter.Record(metricValue);
+            // Refresh the process memory information
+            metricValue = MemoryUsage.GetProcessMemoryUsage().Result;
+            // Update values for Prometheus
+            processMemoryUsage.Set(metricValue);
+            // Update values for OpenTelemetry
+            processMemoryUsageCounter.Record(metricValue);
         }
         catch (Exception e)
         {
@@ -74,9 +113,18 @@ public class Metric_Logic : BaseNetLogic
 
         try
         {
-            // Refresh the CPU information
-            systemCpuUsage.Set(CpuUsage.GetTotalCpuUsage().Result);
-            processCpuUsage.Set(CpuUsage.GetCpuUsageForProcess().Result);
+            // Refresh the total CPU information
+            metricValue = CpuUsage.GetTotalCpuUsage().Result;
+            // Update values for Prometheus
+            systemCpuUsage.Set(metricValue);
+            // Update values for OpenTelemetry
+            systemCpuUsageCounter.Record(metricValue);
+            // Refresh the process CPU information
+            metricValue = CpuUsage.GetCpuUsageForProcess().Result;
+            // Update values for Prometheus
+            processCpuUsage.Set(metricValue);
+            // Update values for OpenTelemetry
+            processCpuUsageCounter.Record(metricValue);
         }
         catch (Exception e)
         {
@@ -84,9 +132,13 @@ public class Metric_Logic : BaseNetLogic
         }
 
         try
-        { 
+        {
             // Refresh the Optix Variable(s)
-            optixModelVariable.Set(Project.Current.GetVariable("Model/Variable1").Value);
+            metricValue = Project.Current.GetVariable("Model/Variable1").Value;
+            // Update values for Prometheus
+            optixModelVariable.Set(metricValue);
+            // Update values for OpenTelemetry
+            optixModelVariableCounter.Record(metricValue);
         }
         catch (Exception e)
         {
@@ -94,8 +146,28 @@ public class Metric_Logic : BaseNetLogic
         }
     }
 
+    #region Private fields for Prometheus and OpenTelemetry metrics
     private PeriodicTask metricsTask;
     private MetricServer metricServer;
+    private MeterProvider meterProvider;
+    #endregion
+
+    #region Prometheus metrics declaration
+    private static readonly Gauge optixModelVariable = Metrics.CreateGauge("FTOptix_Model_Variable1", "Variable1 from Model folder");
+    private static readonly Gauge systemCpuUsage = Metrics.CreateGauge("FTOptix_Diagnostics_totalCpuUsagePercent", "Total CPU usage percent");
+    private static readonly Gauge systemRamUsage = Metrics.CreateGauge("FTOptix_Diagnostics_totalRamUsageMegaBytes", "Total RAM utilization in MB");
+    private static readonly Gauge processCpuUsage = Metrics.CreateGauge("FTOptix_Diagnostics_processCpuUsagePercent", "CPU usage percent of the current process");
+    private static readonly Gauge processMemoryUsage = Metrics.CreateGauge("FTOptix_Diagnostics_processMemoryUsageMegaBytes", "Memory usage of the current process in MB");
+    #endregion
+
+    #region OpenTelemetry metrics declaration
+    private static readonly Meter meter = new Meter("FTOptixRuntime", "1.0");
+    private static readonly Histogram<double> optixModelVariableCounter = meter.CreateHistogram<double>("FTOptix_Model_Variable1");
+    private static readonly Histogram<double> systemCpuUsageCounter = meter.CreateHistogram<double>("FTOptix_Diagnostics_totalCpuUsagePercent");
+    private static readonly Histogram<double> systemRamUsageCounter = meter.CreateHistogram<double>("FTOptix_Diagnostics_totalRamUsageMegaBytes");
+    private static readonly Histogram<double> processCpuUsageCounter = meter.CreateHistogram<double>("FTOptix_Diagnostics_processCpuUsagePercent");
+    private static readonly Histogram<double> processMemoryUsageCounter = meter.CreateHistogram<double>("FTOptix_Diagnostics_processMemoryUsageMegaBytes");
+    #endregion
 }
 
 public class CpuUsage
