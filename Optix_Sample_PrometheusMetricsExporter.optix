@@ -40,32 +40,32 @@ Project:
   9:
    Uri: 'urn:FTOptix:HMIProject'
    Module: FTOptix.HMIProject
-   Version: 6.4
+   Version: 6.5
   10:
    Uri: 'urn:FTOptix:HMIProject:Net'
    Module: FTOptix.HMIProject.Net
-   Version: 4.7
-  11:
-   Uri: 'urn:FTOptix:NativeUI'
-   Module: FTOptix.NativeUI
-   Version: 2.1
-  12:
-   Uri: 'urn:FTOptix:NativeUI:Net'
-   Module: FTOptix.NativeUI.Net
-   Version: 1.0
+   Version: 4.8
   13:
    Uri: 'urn:FTOptix:NetLogic'
    Module: FTOptix.NetLogic
    Version: 4.0
+  15:
+   Uri: 'urn:FTOptix:WebUI'
+   Module: FTOptix.WebUI
+   Version: 1.2
+  16:
+   Uri: 'urn:FTOptix:WebUI:Net'
+   Module: FTOptix.WebUI.Net
+   Version: 1.2
  Statistics:
-  TotalNodeCount: 174
-  Objects: 78
+  TotalNodeCount: 194
+  Objects: 82
   ObjectTypes: 3
-  Variables: 93
+  Variables: 109
   VariableTypes: 0
   DataTypes: 0
   Methods: 0
-  References: 2
+  References: 7
   ReferenceTypes: 0
   Files: 21
  Nodes:

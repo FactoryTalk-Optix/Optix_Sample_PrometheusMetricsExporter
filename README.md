@@ -35,13 +35,30 @@ The following packages have to be installed (if not automatically restored by Fa
 
 ## Configuration
 
-### Allow FTOptixRuntime Access to Port 1234
+### Environment Variables
 
-To allow FTOptixRuntime access to port 1234 without administrator privileges, run the following command in the terminal (as Administrator):
+The following environment variables are used to configure the metrics servers:
+
+- `OTEL_TARGET`: Specifies the OpenTelemetry target address (default: "localhost")
+  - Expected value: any IP address or DNS as a string, example: `OTEL_TARGET=192.168.1.10`
+- `OTEL_PORT`: Specifies the OpenTelemetry target port (default: "4317")
+  - Expected value: any valid TCP port, example: `OTEL_PORT=4317`
+- `OTEL_PROTOCOL`: Specifies the OpenTelemetry protocol (default: "Grpc")
+  - Expected value: `0` means **Grpc** while any other value means **HttpProtobuf**, example: `OTEL_PROTOCOL=0`
+- `PROM_PORT`: Specifies the Prometheus metrics server port (default: "1234")
+  - Expected value: any valid TCP port, example: `PROM_PORT=1234`
+  
+Environment variables are validated at the script startup, check the console output to validate the parameters and to check the initialization status.
+
+### Allow FTOptixRuntime Access to specific ports (Windows only)
+
+To allow FTOptixRuntime access to some TCP ports (like 1234) without administrator privileges, run the following command in the terminal (as Administrator):
 
 ```bash
 netsh http add urlacl url=http://+:1234/ user=Everyone
 ```
+
+Make sure to replace `1234` if needed.
 
 ### Prometheus Configuration
 
@@ -89,12 +106,39 @@ The following metrics are exposed:
 
 ## Running the Code
 
-1. Build and run the project.
-2. Access the metrics at `http://ipaddress:1234/metrics`.
+### Running on Windows host
+
+1. Build and run the project using FactoryTalk Optix Studio.
+
+### Running in a Ubuntu 22 Docker container
+
+1. Expand the Save menu, select `Export` and then `FactoryTalk Optix Application`
+  - Make sure to select Ubuntu 22.04 as target platform-specific
+2. Copy the output folder to any machine where **Docker** is installed
+3. In the same folder where the `FTOptixApplication` folder was pasted, create a `Dockerfile`
+4. Paste the code below
+
+```Dockerfile
+FROM ubuntu:22.04
+RUN mkdir /root/optix
+WORKDIR /root/optix
+COPY ./FTOptixApplication/ /root/optix/
+RUN apt update && apt install -y libxcb-cursor0
+RUN chmod +x /root/optix/FTOptixRuntime
+EXPOSE 8080/tcp # WebPresentationEngine port
+EXPOSE 1234/tcp # Prometheus exporter port
+ENTRYPOINT ["/root/optix/FTOptixRuntime", "-c"]
+```
+
+5. Save the file (after changing the ports if needed)
+6. Build the container with `docker build -t ftoptix-telemetry:latest .` (please note the `.` at the end of the command)
+7. Execute the container with `docker run -itd -p 8080:8080 -p 1234:1234 ftoptix-telemetry`
+
+## Checking the output
 
 ### Monitoring with dotnet-counters
 
-You can also monitor the metrics using `dotnet-counters`:
+You can monitor the metrics using `dotnet-counters`:
 
 ```bash
 dotnet-counters monitor -n FTOptixRuntime --counters [metric name]
@@ -102,11 +146,15 @@ dotnet-counters monitor -n FTOptixRuntime --counters [metric name]
 
 Replace `[metric name]` with the name of the metric you want to monitor.
 
+### Access the metrics endpoint using a Web Browser
+
+Access the metrics at `http://ipaddress:1234/metrics` (replace IP address and TCP port as needed).
+
 ### Logging
 
 Errors during metric refresh are logged using the `Log.Error` method, these are shown to the FactoryTalk Optix logs.
 
-## Sample Grafana + Prometheus stack
+## Sample **Grafana** + **Prometheus** + **OpenTelemetry** + **FT Optix** stack
 
 This is just an example of how to run an instance of Grafana + Prometheus + OpenTelemetry to see the exported metrics
 
@@ -114,6 +162,7 @@ This is just an example of how to run an instance of Grafana + Prometheus + Open
 - **Prometheus**: used to collect metrics and pass it to Grafana
 - **Ubuntu**: optional - only used to edit configs
 - **OpenTelemetry Collector**: receiving OpenTelemetry data from Optix and passing it to Prometheus using the exporter
+- **FT Optix**: sending the telemetry data to OpenTelemetry and exposing the Prometheus endpoint
 
 ```yaml
 services:     
@@ -121,7 +170,7 @@ services:
     image: grafana/grafana
     container_name: grafana
     ports:
-      - 3000:3000
+      - 3000:3000 # Set TCP port to access dashboards
     restart: unless-stopped
     environment:
       - GF_SECURITY_ADMIN_USER=admin
@@ -135,17 +184,17 @@ services:
     container_name: prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
-    ports:
-      - 9090:9090
+    #ports:
+      #- 9090:9090 # Open this port only if the container is outside grafana stack
     restart: unless-stopped
     volumes:
       - prom_etc:/etc/prometheus
       - prom_data:/prometheus
 
   ubuntu:
+    # This container is only used to edit the Prometheus configuration
     image: ubuntu:latest
     container_name: grafana_ubuntu
-    restart: unless-stopped
     stdin_open: true
     tty: true
     volumes:
@@ -160,14 +209,29 @@ services:
     container_name: otel-collector
     volumes:
       - otel_config:/etc/otelcol-contrib/
+    #ports: # Make sure to open only the ports that are needed outside the stack
+      #- 1888:1888 # pprof extension
+      #- 8888:8888 # Prometheus metrics exposed by the Collector
+      #- 8889:8889 # Prometheus exporter metrics
+      #- 13133:13133 # health_check extension
+      #- 4317:4317 # OTLP gRPC receiver
+      #- 4318:4318 # OTLP http receiver
+      #- 55679:55679 # zpages extension
+
+  ftoptix:
+    # This container was built using the steps above
+    image: ftoptix-telemetry:latest
+    container_name: grafana_ftoptix
+    stdin_open: true
+    tty: true
     ports:
-      - 1888:1888 # pprof extension
-      - 8888:8888 # Prometheus metrics exposed by the Collector
-      - 8889:8889 # Prometheus exporter metrics
-      - 13133:13133 # health_check extension
-      - 4317:4317 # OTLP gRPC receiver
-      - 4318:4318 # OTLP http receiver
-      - 55679:55679 # zpages extension
+      #- 1234:1234 # Only if deployed outside the stack
+      - 8080:8080 # As configured in WebPresentationEngine
+    environment: # Configure as needed
+      - OTEL_TARGET=192.168.1.10
+      - OTEL_PORT=4317
+      - OTEL_PROTOCOL=0
+      - PROM_PORT=1234
 
 volumes:
   grafana:

@@ -12,6 +12,7 @@ using OpenTelemetry;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Logs;
 using OpenTelemetry.Exporter;
+using FTOptix.WebUI;
 #endregion
 
 public class Metrics_Logic : BaseNetLogic
@@ -21,46 +22,106 @@ public class Metrics_Logic : BaseNetLogic
     #region NetLogic creation and disposal methods
     public override void Start()
     {
-        if (PrometheusInitialization() || OpenTelemetryInitialization())
+        Log.Info("Metrics.Start", "Starting the metrics server in 5 seconds...");
+        metricsInitialization = new DelayedTask(StartMetrics, 5000, LogicObject);
+        metricsInitialization.Start();
+    }
+
+    public override void Stop()
+    {
+        // Stop the periodic task and dispose all metrics
+        Log.Info("Metrics.Stop", "Stopping the metrics server");
+        metricsInitialization?.Dispose();
+        metricsTask?.Dispose();
+        metricServer?.Dispose();
+        meterProvider?.Dispose();
+    }
+
+    private void StartMetrics()
+    {
+        Log.Info("Metrics.Start", "Starting the metrics server");
+        var prometheusStarted = PrometheusInitialization();
+        var openTelemetryStarted = OpenTelemetryInitialization();
+        if (prometheusStarted || openTelemetryStarted)
         {
             // Start the periodic task to refresh the metrics
             metricsTask = new PeriodicTask(UpdadteMetricsMethod, 500, LogicObject);
             metricsTask.Start();
+            Log.Info("Metrics.Start", "Metrics server started successfully");
         }
         else
         {
             Log.Error("Metrics.Start", "Failed to start the metrics server");
         }
     }
-
-    public override void Stop()
-    {
-        // Stop the periodic task and dispose all metrics
-        metricsTask?.Dispose();
-        metricServer?.Dispose();
-        meterProvider?.Dispose();
-    }
     #endregion
 
     #region Metrics initialization
     private bool OpenTelemetryInitialization()
     {
+        Log.Info("Metrics.Start", "Starting the OpenTelemetry metrics server");
+
+        // Get the OpenTelemetry target address
+        var otel_adddress = Environment.GetEnvironmentVariable("OTEL_TARGET", EnvironmentVariableTarget.Process);
+        if (string.IsNullOrEmpty(otel_adddress))
+        {
+            Log.Warning("Metrics.Start", "OTEL_TARGET environment variable is not set, using `localhost`");
+            otel_adddress = "localhost";
+        }
+        else
+        {
+            Log.Info("Metrics.Start", "OTEL_TARGET environment variable is set to: " + otel_adddress);
+        }
+
+        // Get the OpenTelemetry target port
+        var otel_port = Environment.GetEnvironmentVariable("OTEL_PORT", EnvironmentVariableTarget.Process);
+        if (string.IsNullOrEmpty(otel_port))
+        {
+            Log.Warning("Metrics.Start", "OTEL_PORT environment variable is not set, using `4317`");
+            otel_port = "4317"; // or "4318" for HttpProtobuf
+        }
+        else
+        {
+            Log.Info("Metrics.Start", "OTEL_PORT environment variable is set to: " + otel_port);
+        }
+
+        // Get the OpenTelemetry protocol
+        var protocol = Environment.GetEnvironmentVariable("OTEL_PROTOCOL", EnvironmentVariableTarget.Process);
+        if (string.IsNullOrEmpty(protocol))
+        {
+            Log.Warning("Metrics.Start", "OTEL_PROTOCOL environment variable is not set, using `Grpc`");
+            protocol = "0"; // or "HttpProtobuf"
+        }
+        else if (protocol == "0")
+        {
+            Log.Info("Metrics.Start", "OTEL_PROTOCOL environment variable is set to: Grpc");
+        }
+        else
+        {
+            Log.Info("Metrics.Start", "OTEL_PROTOCOL environment variable is set to: HttpProtobuf");
+        }
+
+        // Set the OpenTelemetry protocol
+        var otlpExportProtocol = protocol != "0" ? OtlpExportProtocol.HttpProtobuf : OtlpExportProtocol.Grpc;
+
         try
         {
             // Start the OpenTelemetry metrics server
+            Log.Info("Metrics.Start", "Starting the OpenTelemetry metrics server with the following parameters: " +
+                "OTEL_TARGET=" + otel_adddress + ", OTEL_PORT=" + otel_port + ", OTEL_PROTOCOL=" + (protocol != "0" ? "HttpProtobuf" : "Grpc"));
             meterProvider = Sdk.CreateMeterProviderBuilder()
                 .AddMeter("FTOptixRuntime")
                 .AddConsoleExporter()
                 .AddOtlpExporter(options =>
                 {
                     // Set the protocol to Grpc or HttpProtobuf
-                    options.Protocol = OtlpExportProtocol.Grpc; // or OtlpExportProtocol.HttpProtobuf
+                    options.Protocol = otlpExportProtocol;
 
                     // Set the endpoint
-                    options.Endpoint = new Uri("http://172.19.20.27:4317"); // or "http://localhost:4318" for HttpProtobuf
+                    options.Endpoint = new Uri($"http://{otel_adddress}:{otel_port}");
                 })
                 .Build();
-
+            Log.Info("Metrics.Start", "OpenTelemetry metrics server started successfully");
             return true;
         }
         catch (Exception e)
@@ -72,11 +133,23 @@ public class Metrics_Logic : BaseNetLogic
 
     private bool PrometheusInitialization()
     {
+        Log.Info("Metrics.Start", "Starting the Prometheus metrics server");
         try
         {
             // Start the metrics server
-            metricServer = new MetricServer(port: 1234);
-            metricServer.Start();
+            var metricsPort = Environment.GetEnvironmentVariable("PROM_PORT", EnvironmentVariableTarget.Process);
+            if (string.IsNullOrEmpty(metricsPort))
+            {
+                Log.Warning("Metrics.Start", "PROM_PORT environment variable is not set, using `1234`");
+                metricsPort = "1234";
+            }
+            else
+            {
+                Log.Info("Metrics.Start", "PROM_PORT environment variable is set to: " + metricsPort);
+            }
+            metricServer = new MetricServer(port: Convert.ToInt32(metricsPort));
+            _ = metricServer.Start();
+            Log.Info("Metrics.Start", "Prometheus metrics server started successfully");
             return true;
         }
         catch (Exception e)
@@ -167,6 +240,10 @@ public class Metrics_Logic : BaseNetLogic
     private static readonly Histogram<double> systemRamUsageCounter = meter.CreateHistogram<double>("FTOptix_Diagnostics_totalRamUsageMegaBytes");
     private static readonly Histogram<double> processCpuUsageCounter = meter.CreateHistogram<double>("FTOptix_Diagnostics_processCpuUsagePercent");
     private static readonly Histogram<double> processMemoryUsageCounter = meter.CreateHistogram<double>("FTOptix_Diagnostics_processMemoryUsageMegaBytes");
+    #endregion
+
+    #region Optix Variable(s) declaration
+    private DelayedTask metricsInitialization;
     #endregion
 }
 

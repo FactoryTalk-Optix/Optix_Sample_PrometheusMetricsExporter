@@ -16,12 +16,12 @@
     <ResolveAssemblyWarnOrErrorOnTargetArchitectureMismatch>None</ResolveAssemblyWarnOrErrorOnTargetArchitectureMismatch>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.ObjectPool" Version="8.0.10" />
-    <PackageReference Include="OpenTelemetry" Version="1.9.0" />
-    <PackageReference Include="OpenTelemetry.Exporter.Console" Version="1.9.0" />
-    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.9.0" />
-    <PackageReference Include="prometheus-net" Version="8.2.1" />
-    <PackageReference Include="System.Diagnostics.PerformanceCounter" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.ObjectPool" Version="8.0.10"/>
+    <PackageReference Include="OpenTelemetry" Version="1.9.0"/>
+    <PackageReference Include="OpenTelemetry.Exporter.Console" Version="1.9.0"/>
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.9.0"/>
+    <PackageReference Include="prometheus-net" Version="8.2.1"/>
+    <PackageReference Include="System.Diagnostics.PerformanceCounter" Version="8.0.1"/>
   </ItemGroup>
-  <Import Project="Optix_Sample_PrometheusMetricsExporter.references" />
+  <Import Project="Optix_Sample_PrometheusMetricsExporter.references"/>
 </Project>
