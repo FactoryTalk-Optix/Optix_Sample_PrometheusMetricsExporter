@@ -112,8 +112,7 @@ The following metrics are exposed:
 
 ### Running in a Ubuntu 22 Docker container
 
-1. Expand the Save menu, select `Export` and then `FactoryTalk Optix Application`
-  - Make sure to select Ubuntu 22.04 as target platform-specific
+1. Expand the Save menu, select `Export`, then `FactoryTalk Optix Application` and select `Ubuntu 22.04 x86_64` as target platform
 2. Copy the output folder to any machine where **Docker** is installed
 3. In the same folder where the `FTOptixApplication` folder was pasted, create a `Dockerfile`
 4. Paste the code below
